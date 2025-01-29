@@ -6,6 +6,9 @@ import base64
 from datetime import datetime
 import io
 from collections import defaultdict
+import hashlib
+import requests
+import time
 
 class PasswordManager:
     def __init__(self):
@@ -42,7 +45,6 @@ class PasswordManager:
         return strength
 
     def find_duplicate_passwords(self):
-        """Find accounts using the same password"""
         if len(st.session_state.passwords) == 0:
             return {}
         
@@ -53,8 +55,48 @@ class PasswordManager:
                 'username': row['username']
             })
         
-        # Filter out passwords that are not duplicated
         return {k: v for k, v in password_groups.items() if len(v) > 1}
+
+    def check_compromised_passwords(self):
+        """Check if passwords have been compromised using HIBP API"""
+        compromised_passwords = []
+        
+        for _, row in st.session_state.passwords.iterrows():
+            password = row['password']
+            password_hash = hashlib.sha1(password.encode('utf-8')).hexdigest().upper()
+            hash_prefix = password_hash[:5]
+            hash_suffix = password_hash[5:]
+            
+            try:
+                response = requests.get(f'https://api.pwnedpasswords.com/range/{hash_prefix}')
+                if response.status_code == 200:
+                    hashes = (line.split(':') for line in response.text.splitlines())
+                    for h, count in hashes:
+                        if h == hash_suffix:
+                            compromised_passwords.append({
+                                'site': row['site'],
+                                'username': row['username'],
+                                'times_compromised': int(count)
+                            })
+                            break
+                time.sleep(0.1)
+            except Exception as e:
+                st.error(f"Error checking compromised passwords: {str(e)}")
+                return None
+        
+        return compromised_passwords
+
+    def format_datetime(self, dt_string):
+        """Consistently format datetime strings"""
+        try:
+            dt = pd.to_datetime(dt_string)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            try:
+                dt = datetime.strptime(dt_string, '%d-%m-%Y %H:%M')
+                return dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                return dt_string
 
 def main():
     st.set_page_config(
@@ -63,21 +105,19 @@ def main():
         layout="wide"
     )
 
-    # Initialize password manager
     pm = PasswordManager()
 
-    # Sidebar for actions
     with st.sidebar:
         st.header("Actions")
         action = st.radio(
             "Choose an action:",
-            ["View Passwords", "Add New Password", "Import/Export", "Security Analysis"]  # Added new option
+            ["View Passwords", "Add New Password", "Import/Export", "Security Analysis"]
         )
 
     if action == "Security Analysis":
         st.header("🔍 Security Analysis")
         
-        # Find duplicate passwords
+        # Duplicate password check
         duplicates = pm.find_duplicate_passwords()
         
         if duplicates:
@@ -86,7 +126,6 @@ def main():
             
             for password, accounts in duplicates.items():
                 with st.expander(f"Password used by {len(accounts)} accounts"):
-                    # Create a nice table for each group of accounts
                     accounts_df = pd.DataFrame(accounts)
                     st.dataframe(
                         accounts_df,
@@ -98,30 +137,73 @@ def main():
                     )
                     st.markdown("**Recommendation:** Consider changing these passwords to unique ones for better security.")
             
-            # Add a button to generate new unique passwords
             if st.button("Generate New Unique Passwords"):
                 new_passwords = {}
                 for password in duplicates.keys():
                     for account in duplicates[password]:
                         new_passwords[(account['site'], account['username'])] = pm.generate_password()
                 
-                # Display the suggested new passwords
                 st.markdown("### Suggested New Passwords")
                 for (site, username), new_password in new_passwords.items():
                     st.code(f"{site} ({username}): {new_password}")
                 st.info("Copy these passwords and update them in your accounts for better security.")
         else:
             st.success("✅ No duplicate passwords found! Good job keeping your accounts secure.")
+
+        # Compromised password check
+        st.markdown("### 🚨 Compromised Password Check")
+        if st.button("Check for Compromised Passwords"):
+            with st.spinner("Checking passwords against known data breaches..."):
+                compromised = pm.check_compromised_passwords()
+                
+                if compromised is None:
+                    st.error("Error occurred while checking compromised passwords. Please try again later.")
+                elif not compromised:
+                    st.success("✅ None of your passwords were found in known data breaches!")
+                else:
+                    st.error(f"⚠️ Found {len(compromised)} compromised passwords!")
+                    
+                    compromised_df = pd.DataFrame(compromised)
+                    compromised_df['recommendation'] = "Change this password immediately!"
+                    
+                    st.markdown("#### Compromised Passwords Details")
+                    st.dataframe(
+                        compromised_df,
+                        hide_index=True,
+                        column_config={
+                            "site": "Website/Application",
+                            "username": "Username/Email",
+                            "times_compromised": st.column_config.NumberColumn(
+                                "Times Found in Data Breaches",
+                                help="Number of times this password appeared in known data breaches",
+                                format="%d"
+                            ),
+                            "recommendation": "Recommendation"
+                        }
+                    )
+                    
+                    st.markdown("""
+                    ### 🛡️ Recommendations:
+                    1. Change these passwords immediately
+                    2. Use the password generator to create new, secure passwords
+                    3. Enable two-factor authentication where possible
+                    4. Don't reuse passwords across different accounts
+                    """)
+                    
+                    if st.button("Generate New Passwords for Compromised Accounts"):
+                        st.markdown("### Suggested New Passwords")
+                        for entry in compromised:
+                            new_password = pm.generate_password()
+                            st.code(f"{entry['site']} ({entry['username']}): {new_password}")
+                        st.info("Copy these passwords and update them in your accounts immediately.")
         
-        # Additional security statistics
+        # Password strength analysis
         if len(st.session_state.passwords) > 0:
             st.markdown("### Password Strength Analysis")
             
-            # Calculate average password strength
             strengths = [pm.get_password_strength(p) for p in st.session_state.passwords['password']]
             avg_strength = sum(strengths) / len(strengths)
             
-            # Display average strength with color coding
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Average Password Strength", f"{avg_strength:.1f}%")
@@ -129,7 +211,6 @@ def main():
                 strength_color = "red" if avg_strength < 60 else "yellow" if avg_strength < 80 else "green"
                 st.markdown(f"Status: <span style='color: {strength_color};'>{'Weak' if avg_strength < 60 else 'Medium' if avg_strength < 80 else 'Strong'}</span>", unsafe_allow_html=True)
             
-            # Password length distribution
             st.markdown("### Password Length Distribution")
             lengths = [len(p) for p in st.session_state.passwords['password']]
             length_df = pd.DataFrame({'Length': lengths})
@@ -139,11 +220,17 @@ def main():
         st.header("Stored Passwords")
         
         search = st.text_input("🔍 Search passwords", placeholder="Search by website or username")
-        
         show_all = st.checkbox("Show All Passwords")
         
         if len(st.session_state.passwords) > 0:
             df_display = st.session_state.passwords.copy()
+            
+            # Handle datetime formatting
+            if 'date_added' in df_display.columns:
+                df_display['date_added'] = df_display['date_added'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else x)
+            if 'last_modified' in df_display.columns:
+                df_display['last_modified'] = df_display['last_modified'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else x)
+            
             if search:
                 mask = (df_display['site'].str.contains(search, case=False)) | \
                        (df_display['username'].str.contains(search, case=False))
@@ -151,11 +238,6 @@ def main():
             
             if not show_all:
                 df_display['password'] = '••••••••'
-            
-            if 'date_added' in df_display.columns:
-                df_display['date_added'] = pd.to_datetime(df_display['date_added']).dt.strftime('%Y-%m-%d %H:%M')
-            if 'last_modified' in df_display.columns:
-                df_display['last_modified'] = pd.to_datetime(df_display['last_modified']).dt.strftime('%Y-%m-%d %H:%M')
             
             st.dataframe(
                 df_display,
@@ -248,6 +330,12 @@ def main():
                             df['date_added'] = current_time
                         if 'last_modified' not in df.columns:
                             df['last_modified'] = current_time
+                        
+                        # Ensure consistent datetime format for imported data
+                        if 'date_added' in df.columns:
+                            df['date_added'] = df['date_added'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else current_time)
+                        if 'last_modified' in df.columns:
+                            df['last_modified'] = df['last_modified'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else current_time)
                             
                         st.session_state.passwords = pd.concat(
                             [st.session_state.passwords, df],
