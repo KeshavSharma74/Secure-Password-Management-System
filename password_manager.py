@@ -15,8 +15,6 @@ class PasswordManager:
             st.session_state.passwords = pd.DataFrame(
                 columns=['site', 'username', 'password', 'date_added', 'last_modified']
             )
-        if 'show_passwords' not in st.session_state:
-            st.session_state.show_passwords = False
 
     def generate_password(self, length=12):
         characters = string.ascii_lowercase + string.ascii_uppercase + string.digits + "!@#$%^&*"
@@ -102,7 +100,6 @@ def main():
         layout="wide"
     )
     
-    # Custom CSS styling
     st.markdown(f"""
     <style>
         .main {{
@@ -317,12 +314,9 @@ def main():
             username = st.text_input("Username/Email", placeholder="Enter username or email")
             password = st.text_input(
                 "Password",
-                type="password" if not st.session_state.show_passwords else "text",
+                type="password",
                 placeholder="Enter password or generate one"
             )
-            
-            show_password = st.checkbox("Show Password", value=st.session_state.show_passwords)
-            st.session_state.show_passwords = show_password
 
             if st.button("Generate Strong Password"):
                 password = pm.generate_password()
