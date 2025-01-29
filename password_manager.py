@@ -4,7 +4,6 @@ import string
 import random
 import base64
 from datetime import datetime
-import io
 from collections import defaultdict
 import hashlib
 import requests
@@ -58,7 +57,6 @@ class PasswordManager:
         return {k: v for k, v in password_groups.items() if len(v) > 1}
 
     def check_compromised_passwords(self):
-        """Check if passwords have been compromised using HIBP API"""
         compromised_passwords = []
         
         for _, row in st.session_state.passwords.iterrows():
@@ -87,7 +85,6 @@ class PasswordManager:
         return compromised_passwords
 
     def format_datetime(self, dt_string):
-        """Consistently format datetime strings"""
         try:
             dt = pd.to_datetime(dt_string)
             return dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -104,22 +101,81 @@ def main():
         page_icon="🔒",
         layout="wide"
     )
+    
+    # Custom CSS styling
+    st.markdown(f"""
+    <style>
+        .main {{
+            background-color: #f8f9fa;
+        }}
+        .css-1d391kg {{
+            background-color: #1a237e !important;
+            color: white !important;
+        }}
+        .st-cc {{
+            color: white !important;
+            font-weight: bold !important;
+        }}
+        .stButton>button {{
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 8px;
+            padding: 10px 24px;
+            transition: all 0.3s;
+        }}
+        .stButton>button:hover {{
+            background-color: #45a049;
+            transform: scale(1.05);
+        }}
+        .dataframe {{
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        .stMetric {{
+            background-color: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .stProgress>div>div>div {{
+            background-image: linear-gradient(45deg, #4CAF50, #81C784);
+        }}
+        .strength-card {{
+            background: linear-gradient(135deg, #ffffff, #f8f9fa);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        .checklist {{
+            background-color: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .header-text {{
+            color: #2c3e50;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
 
     pm = PasswordManager()
 
     with st.sidebar:
-        st.header("Actions")
+        st.header("🔐 Actions")
         action = st.radio(
             "Choose an action:",
-            ["View Passwords", "Add New Password", "Import/Export", "Security Analysis"]
+            ["View Passwords", "Add New Password", "Import/Export", "Security Analysis"],
+            label_visibility="collapsed"
         )
 
     if action == "Security Analysis":
-        st.header("🔍 Security Analysis")
+        st.markdown("<h1 class='header-text'>🔍 Security Analysis</h1>", unsafe_allow_html=True)
         
-        # Duplicate password check
         duplicates = pm.find_duplicate_passwords()
-        
         if duplicates:
             st.warning("⚠️ Duplicate Passwords Detected!", icon="⚠️")
             st.markdown("The following accounts are using the same passwords:")
@@ -150,7 +206,6 @@ def main():
         else:
             st.success("✅ No duplicate passwords found! Good job keeping your accounts secure.")
 
-        # Compromised password check
         st.markdown("### 🚨 Compromised Password Check")
         if st.button("Check for Compromised Passwords"):
             with st.spinner("Checking passwords against known data breaches..."):
@@ -162,7 +217,6 @@ def main():
                     st.success("✅ None of your passwords were found in known data breaches!")
                 else:
                     st.error(f"⚠️ Found {len(compromised)} compromised passwords!")
-                    
                     compromised_df = pd.DataFrame(compromised)
                     compromised_df['recommendation'] = "Change this password immediately!"
                     
@@ -175,7 +229,6 @@ def main():
                             "username": "Username/Email",
                             "times_compromised": st.column_config.NumberColumn(
                                 "Times Found in Data Breaches",
-                                help="Number of times this password appeared in known data breaches",
                                 format="%d"
                             ),
                             "recommendation": "Recommendation"
@@ -197,39 +250,40 @@ def main():
                             st.code(f"{entry['site']} ({entry['username']}): {new_password}")
                         st.info("Copy these passwords and update them in your accounts immediately.")
         
-        # Password strength analysis
         if len(st.session_state.passwords) > 0:
             st.markdown("### Password Strength Analysis")
-            
             strengths = [pm.get_password_strength(p) for p in st.session_state.passwords['password']]
             avg_strength = sum(strengths) / len(strengths)
+            lengths = [len(p) for p in st.session_state.passwords['password']]
+            avg_length = sum(lengths) / len(lengths)
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Average Password Strength", f"{avg_strength:.1f}%")
-            with col2:
-                strength_color = "red" if avg_strength < 60 else "yellow" if avg_strength < 80 else "green"
-                st.markdown(f"Status: <span style='color: {strength_color};'>{'Weak' if avg_strength < 60 else 'Medium' if avg_strength < 80 else 'Strong'}</span>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style='display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin: 20px 0;'>
+                <div class="stMetric">
+                    <div style='color: #4CAF50; font-size: 24px; margin-bottom: 8px;'>📊 Average Strength</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #2c3e50;'>{avg_strength:.1f}%</div>
+                </div>
+                <div class="stMetric">
+                    <div style='color: #4CAF50; font-size: 24px; margin-bottom: 8px;'>📏 Average Length</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #2c3e50;'>{avg_length:.1f} chars</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
             st.markdown("### Password Length Distribution")
-            lengths = [len(p) for p in st.session_state.passwords['password']]
             length_df = pd.DataFrame({'Length': lengths})
             st.bar_chart(length_df['Length'].value_counts())
 
     elif action == "View Passwords":
-        st.header("Stored Passwords")
+        st.markdown("<h1 class='header-text'>🔑 Stored Passwords</h1>", unsafe_allow_html=True)
         
         search = st.text_input("🔍 Search passwords", placeholder="Search by website or username")
         show_all = st.checkbox("Show All Passwords")
         
         if len(st.session_state.passwords) > 0:
             df_display = st.session_state.passwords.copy()
-            
-            # Handle datetime formatting
-            if 'date_added' in df_display.columns:
-                df_display['date_added'] = df_display['date_added'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else x)
-            if 'last_modified' in df_display.columns:
-                df_display['last_modified'] = df_display['last_modified'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else x)
+            df_display['date_added'] = df_display['date_added'].apply(pm.format_datetime)
+            df_display['last_modified'] = df_display['last_modified'].apply(pm.format_datetime)
             
             if search:
                 mask = (df_display['site'].str.contains(search, case=False)) | \
@@ -254,7 +308,7 @@ def main():
             st.info("No passwords stored yet. Add some passwords to see them here!")
 
     elif action == "Add New Password":
-        st.header("Add New Password")
+        st.markdown("<h1 class='header-text'>➕ Add New Password</h1>", unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -276,18 +330,38 @@ def main():
 
         with col2:
             if password:
+                st.markdown("""
+                <div class="strength-card">
+                    <h3 style='color: #2c3e50; margin-bottom: 15px;'>🔐 Password Strength</h3>
+                """, unsafe_allow_html=True)
+                
                 strength = pm.get_password_strength(password)
-                st.markdown("### Password Strength")
-                color = "red" if strength < 40 else "yellow" if strength < 70 else "green"
+                color = "#e74c3c" if strength < 40 else "#f1c40f" if strength < 70 else "#2ecc71"
+                
                 st.progress(strength/100)
-                st.markdown(f"<p style='color: {color};'>Strength: {strength:.0f}%</p>", 
-                          unsafe_allow_html=True)
+                st.markdown(f"""
+                    <p style='color: {color}; font-size: 20px; font-weight: bold;'>
+                        Strength: {strength:.0f}%
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("""
+                <div class="checklist">
+                    <h4 style='color: #2c3e50; margin-bottom: 15px;'>🔍 Requirements Checklist</h4>
+                """, unsafe_allow_html=True)
                 
                 checks = pm.validate_password(password)
-                st.markdown("### Requirements")
                 for requirement, passed in checks.items():
                     icon = "✅" if passed else "❌"
-                    st.markdown(f"{icon} {requirement.title()}")
+                    color = "#2ecc71" if passed else "#e74c3c"
+                    st.markdown(f"""
+                        <p style='color: {color}; margin: 8px 0; font-size: 16px;'>
+                            {icon} {requirement.title()}
+                        </p>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
 
         if st.button("Add Password", type="primary"):
             if not all([site, username, password]):
@@ -308,8 +382,8 @@ def main():
                 st.success("Password added successfully!")
                 st.balloons()
 
-    else:  # Import/Export
-        st.header("Import/Export Passwords")
+    else:
+        st.markdown("<h1 class='header-text'>📤 Import/Export Passwords</h1>", unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -326,16 +400,8 @@ def main():
                         st.error("CSV must contain site, username, and password columns")
                     else:
                         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        if 'date_added' not in df.columns:
-                            df['date_added'] = current_time
-                        if 'last_modified' not in df.columns:
-                            df['last_modified'] = current_time
-                        
-                        # Ensure consistent datetime format for imported data
-                        if 'date_added' in df.columns:
-                            df['date_added'] = df['date_added'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else current_time)
-                        if 'last_modified' in df.columns:
-                            df['last_modified'] = df['last_modified'].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S') if pd.notna(x) else current_time)
+                        df['date_added'] = current_time
+                        df['last_modified'] = current_time
                             
                         st.session_state.passwords = pd.concat(
                             [st.session_state.passwords, df],
